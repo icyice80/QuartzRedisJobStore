@@ -655,16 +655,17 @@ namespace QuartzRedisJobStore.JobStore
                     Db.SetAdd(this.RedisJobStoreSchema.JobBlockedKey(job.Key), this.SchedulerInstanceId);
 
                     Db.SetAdd(this.RedisJobStoreSchema.BlockedJobsSet(), jobHasKey);
+                }
 
-                    //release the fired triggers
-                    var nextFireTimeUtc = trigger.GetNextFireTimeUtc();
+                //release the fired triggers
+                var nextFireTimeUtc = trigger.GetNextFireTimeUtc();
                     if (nextFireTimeUtc != null)
                     {
                         var nextFireTime = nextFireTimeUtc.Value;
                         this.Db.HashSet(triggerHashKey, RedisJobStoreSchema.NextFireTime, nextFireTime.DateTime.ToUnixTimeMilliSeconds());
                         this.SetTriggerState(RedisTriggerState.Waiting, nextFireTime.DateTime.ToUnixTimeMilliSeconds(), triggerHashKey);
                     }
-                }
+                
                 else
                 {
                     this.Db.HashSet(triggerHashKey, RedisJobStoreSchema.NextFireTime, "");
