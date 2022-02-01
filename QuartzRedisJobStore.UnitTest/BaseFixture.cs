@@ -1,6 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Configuration;
+using System.Linq;
+using System.Net;
+using System.Threading.Tasks;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Moq;
 using Newtonsoft.Json;
@@ -17,7 +20,8 @@ namespace QuartzRedisJobStore.UnitTest
     /// <summary>
     /// base test fixture 
     /// </summary>
-    public abstract class BaseFixture {
+    public abstract class BaseFixture
+    {
         /// <summary>
         /// RedisJobStore
         /// </summary>
@@ -30,7 +34,7 @@ namespace QuartzRedisJobStore.UnitTest
         /// <summary>
         /// KeyPrefix
         /// </summary>
-        private const string KeyPrefix = "UnitTest1";
+        private const string KeyPrefix = "QuartzRedisJobStore:UnitTest:";
         /// <summary>
         /// IDatabase
         /// </summary>
@@ -49,27 +53,36 @@ namespace QuartzRedisJobStore.UnitTest
         /// <summary>
         /// constructor
         /// </summary>
-        protected BaseFixture() {
-            InitializeJobStore();
+        protected BaseFixture()
+        {
+            InitializeJobStore().Wait();
         }
 
         /// <summary>
         /// initialize the job store 
         /// </summary>
-        private static void InitializeJobStore()
+        static async Task InitializeJobStore()
         {
+            var redisConfiguration = ConfigurationOptions.Parse(ConfigurationManager.AppSettings["RedisConfiguration"]);
+
+            var uri = new Uri($"redis://{redisConfiguration.EndPoints.FirstOrDefault()}", UriKind.Absolute);
+
             JobStore = new RedisJobStore
             {
-                RedisConfiguration = ConfigurationManager.AppSettings["RedisConfiguration"],
+                Host = uri.Host,
+                Port = uri.Port,
+                Password = redisConfiguration.Password,
+                Ssl = redisConfiguration.Ssl,
+                Database = redisConfiguration.DefaultDatabase ?? 0,
                 KeyPrefix = KeyPrefix,
                 InstanceId = "UnitTestInstanceId"
             };
             MockedSignaler = new Mock<ISchedulerSignaler>();
-            MockedSignaler.Setup(x => x.NotifySchedulerListenersJobDeleted(null));
-            MockedSignaler.Setup(x => x.SignalSchedulingChange(null));
-            JobStore.Initialize(null, MockedSignaler.Object);
+            MockedSignaler.Setup(x => x.NotifySchedulerListenersJobDeleted(null, default));
+            MockedSignaler.Setup(x => x.SignalSchedulingChange(null, default));
+            await JobStore.Initialize(null, MockedSignaler.Object);
             Schema = new RedisJobStoreSchema(KeyPrefix);
-            Db = ConnectionMultiplexer.Connect(JobStore.RedisConfiguration).GetDatabase();
+            Db = (await ConnectionMultiplexer.ConnectAsync(redisConfiguration)).GetDatabase(redisConfiguration.DefaultDatabase ?? 0);
         }
 
         /// <summary>
@@ -77,6 +90,7 @@ namespace QuartzRedisJobStore.UnitTest
         /// </summary>
         public static void CleanUp()
         {
+            /*
             var endpoints = Db?.Multiplexer.GetEndPoints();
 
             if (endpoints != null)
@@ -86,9 +100,8 @@ namespace QuartzRedisJobStore.UnitTest
                     Db?.Multiplexer.GetServer(endpoint).FlushDatabase();
                 }
             }
+            */
         }
-
-
 
         /// <summary>
         /// create a dummy job
@@ -127,16 +140,16 @@ namespace QuartzRedisJobStore.UnitTest
                               .WithDescription("TriggerTesting")
                               .Build();
 
-            var abstractTrigger = (AbstractTrigger)trigger;
-
-            if (abstractTrigger != null)
+            if ((trigger is AbstractTrigger abstractTrigger) && !string.IsNullOrEmpty(calendarName))
             {
                 var calendar = new WeeklyCalendar { DaysExcluded = null };
                 abstractTrigger.ComputeFirstFireTimeUtc(calendar);
                 abstractTrigger.CalendarName = calendarName;
+
+                return abstractTrigger;
             }
 
-            return abstractTrigger ?? (IOperableTrigger)trigger;
+            return (IOperableTrigger)trigger;
         }
 
         /// <summary>
@@ -144,11 +157,12 @@ namespace QuartzRedisJobStore.UnitTest
         /// </summary>
         /// <param name="description">Description</param>
         /// <returns>ICalendar</returns>
-        protected static ICalendar CreateCalendar(string description="week days only") {
+        protected static ICalendar CreateCalendar(string description = "week days only")
+        {
             var calendar = new WeeklyCalendar();
 
             calendar.SetDayExcluded(DayOfWeek.Saturday, true);
-            calendar.SetDayExcluded(DayOfWeek.Sunday,true);
+            calendar.SetDayExcluded(DayOfWeek.Sunday, true);
 
             calendar.Description = description;
 
@@ -160,10 +174,11 @@ namespace QuartzRedisJobStore.UnitTest
         /// </summary>
         /// <param name="job">IJobDetail</param>
         /// <param name="triggers">Triggers</param>
-        protected void StoreJobAndTriggers(IJobDetail job,global::Quartz.Collection.ISet<ITrigger> triggers) {
-            var dictionary = new Dictionary<IJobDetail, global::Quartz.Collection.ISet<ITrigger>> {{job, triggers}};
+        protected async Task StoreJobAndTriggers(IJobDetail job, IReadOnlyCollection<ITrigger> triggers)
+        {
+            var dictionary = new Dictionary<IJobDetail, IReadOnlyCollection<ITrigger>> { { job, triggers } };
 
-            JobStore.StoreJobsAndTriggers(dictionary,true);
+            await JobStore.StoreJobsAndTriggers(dictionary, true);
         }
 
         /// <summary>
@@ -175,11 +190,11 @@ namespace QuartzRedisJobStore.UnitTest
         /// <param name="triggersPerGroup">number of triggers per group</param>
         /// <param name="cronExpression">unix cron expression</param>
         /// <returns>jobs and triggers</returns>
-        protected static IDictionary<IJobDetail, global::Quartz.Collection.ISet<ITrigger>> CreateJobsAndTriggers(int jobGroups, int jobsPerGroup, int triggerGroupsPerJob,
+        protected static IReadOnlyDictionary<IJobDetail, IReadOnlyCollection<ITrigger>> CreateJobsAndTriggers(int jobGroups, int jobsPerGroup, int triggerGroupsPerJob,
                                              int triggersPerGroup, string cronExpression = "")
         {
 
-            var jobsAndTriggers = new Dictionary<IJobDetail, global::Quartz.Collection.ISet<ITrigger>>();
+            var jobsAndTriggers = new Dictionary<IJobDetail, IReadOnlyCollection<ITrigger>>();
 
             for (int g = 0; g < jobGroups; g++)
             {
@@ -188,7 +203,7 @@ namespace QuartzRedisJobStore.UnitTest
                 {
                     var jobName = "jobName_" + j;
                     var job = CreateJob(jobName, jobGroup);
-                    var triggerSet = new global::Quartz.Collection.HashSet<ITrigger>();
+                    var triggerSet = new HashSet<ITrigger>();
                     for (int tg = 0; tg < triggerGroupsPerJob; tg++)
                     {
                         var triggerGroup = "triggerGroup_" + tg + "_" + j + g;
@@ -202,7 +217,7 @@ namespace QuartzRedisJobStore.UnitTest
                             }
                             else
                             {
-                                triggerSet.Add(CreateTrigger(triggerName, triggerGroup, job.Key, cronExpression));
+                                triggerSet.Add(CreateTrigger(triggerName, triggerGroup, job.Key, cronExpression, "testCalendar"));
                             }
                         }
                     }

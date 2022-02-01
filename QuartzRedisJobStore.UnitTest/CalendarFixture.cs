@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Linq;
+using System.Threading.Tasks;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Newtonsoft.Json;
 using Quartz;
@@ -25,7 +26,7 @@ namespace QuartzRedisJobStore.UnitTest
         public void ClearAllJobStoreData()
         {
             System.Diagnostics.Debug.Write("here");
-            JobStore?.ClearAllSchedulingData();
+            JobStore?.ClearAllSchedulingData().Wait();
             System.Diagnostics.Debug.Write(counter++);
         }
 
@@ -39,14 +40,15 @@ namespace QuartzRedisJobStore.UnitTest
         /// store a calendar
         /// </summary>
         [TestMethod]
-        public void StoreCalendarSuccesfully() {
+        public async Task StoreCalendarSuccesfully()
+        {
             //arrange
             var calendar = CreateCalendar();
             var calendarHashKey = Schema.CalendarHashKey(CalendarName);
 
             //act
-            JobStore.StoreCalendar(CalendarName,calendar,false,false);
-            var calendarProperties = Db.HashGetAll(calendarHashKey);
+            await JobStore.StoreCalendar(CalendarName, calendar, false, false);
+            var calendarProperties = await Db.HashGetAllAsync(calendarHashKey);
             var serializedCalendar = (from hashEntry in calendarProperties
                                       where hashEntry.Name == RedisJobStoreSchema.CalendarSerialized
                                       select hashEntry.Value).FirstOrDefault();
@@ -55,7 +57,7 @@ namespace QuartzRedisJobStore.UnitTest
 
             //assert
             Assert.IsNotNull(retrievedCalendar);
-            Assert.AreEqual(retrievedCalendar.Description,calendar.Description);
+            Assert.AreEqual(calendar.Description, retrievedCalendar.Description);
 
         }
 
@@ -64,18 +66,23 @@ namespace QuartzRedisJobStore.UnitTest
         /// the original one will not be overriden.
         /// </summary>
         [TestMethod]
-        public void StoreCalendar_WithoutReplacingExisting_NoOverride() {
+        public async Task StoreCalendar_WithoutReplacingExisting_NoOverride()
+        {
             //arrange
             var calendar1 = CreateCalendar();
             var calendar2 = CreateCalendar("another week days only");
 
             //act
-            JobStore.StoreCalendar(CalendarName,calendar1,false,false);
-            JobStore.StoreCalendar(CalendarName,calendar2,false,false);
-            var retrievedCalendar = JobStore.RetrieveCalendar(CalendarName);
+            await JobStore.StoreCalendar(CalendarName, calendar1, false, false);
+            try
+            {
+                await JobStore.StoreCalendar(CalendarName, calendar2, false, false);
+            }
+            catch { }
+            var retrievedCalendar = await JobStore.RetrieveCalendar(CalendarName);
 
             //assert    
-            Assert.AreEqual(retrievedCalendar.Description,calendar1.Description);
+            Assert.AreEqual(retrievedCalendar.Description, calendar1.Description);
         }
 
         /// <summary>
@@ -83,16 +90,16 @@ namespace QuartzRedisJobStore.UnitTest
         /// the original one will be overriden.
         /// </summary>
         [TestMethod]
-        public void StoreCalendar_WithReplacingExisting_OverrideSuccessfully()
+        public async Task StoreCalendar_WithReplacingExisting_OverrideSuccessfully()
         {
             //arrange
             var calendar1 = CreateCalendar();
             var calendar2 = CreateCalendar("another week days only");
 
             //act
-            JobStore.StoreCalendar(CalendarName, calendar1, false, false);
-            JobStore.StoreCalendar(CalendarName, calendar2, true, false);
-            var retrievedCalendar = JobStore.RetrieveCalendar(CalendarName);
+            await JobStore.StoreCalendar(CalendarName, calendar1, false, false);
+            await JobStore.StoreCalendar(CalendarName, calendar2, true, false);
+            var retrievedCalendar = await JobStore.RetrieveCalendar(CalendarName);
 
             //assert    
             Assert.AreEqual(retrievedCalendar.Description, calendar2.Description);
@@ -102,32 +109,34 @@ namespace QuartzRedisJobStore.UnitTest
         /// retrieve a calendar
         /// </summary>
         [TestMethod]
-        public void RetrieveCalendarSuccessfully() {
+        public async Task RetrieveCalendarSuccessfully()
+        {
             //arrange
             var calendar = CreateCalendar();
-            JobStore.StoreCalendar(CalendarName, calendar, true, false);
+            await JobStore.StoreCalendar(CalendarName, calendar, true, false);
 
             //act
-            var retrievedCalendar = JobStore.RetrieveCalendar(CalendarName);
+            var retrievedCalendar = await JobStore.RetrieveCalendar(CalendarName);
 
             //assert
-            Assert.AreEqual(calendar.Description,retrievedCalendar.Description);
+            Assert.AreEqual(calendar.Description, retrievedCalendar.Description);
             var utcNow = new DateTimeOffset(DateTime.UtcNow);
-            Assert.AreEqual(calendar.GetNextIncludedTimeUtc(utcNow),retrievedCalendar.GetNextIncludedTimeUtc(utcNow));
+            Assert.AreEqual(calendar.GetNextIncludedTimeUtc(utcNow), retrievedCalendar.GetNextIncludedTimeUtc(utcNow));
         }
 
         /// <summary>
         /// get total number of calendars in the store
         /// </summary>
         [TestMethod]
-        public void GetNumberOfCalendarSuccessfully() {
+        public async Task GetNumberOfCalendarSuccessfully()
+        {
             //arrange
-            JobStore.StoreCalendar("cal1", CreateCalendar(), true, false);
-            JobStore.StoreCalendar("cal2", CreateCalendar(), true, false);
-            JobStore.StoreCalendar("cal3", CreateCalendar(), true, false);
+            await JobStore.StoreCalendar("cal1", CreateCalendar(), true, false);
+            await JobStore.StoreCalendar("cal2", CreateCalendar(), true, false);
+            await JobStore.StoreCalendar("cal3", CreateCalendar(), true, false);
 
             //act
-            var numbers = JobStore.GetNumberOfCalendars();
+            var numbers = await JobStore.GetNumberOfCalendars();
 
             //assert
             Assert.IsTrue(numbers == 3);
@@ -137,29 +146,31 @@ namespace QuartzRedisJobStore.UnitTest
         /// remove a calendar
         /// </summary>
         [TestMethod]
-        public void RemoveCalendarSuccessfully() {
+        public async Task RemoveCalendarSuccessfully()
+        {
             //arrange
-            JobStore.StoreCalendar(CalendarName,CreateCalendar(),false,false);
-            
+            await JobStore.StoreCalendar(CalendarName, CreateCalendar(), false, false);
+
             //act
-            var result = JobStore.RemoveCalendar(CalendarName);
+            var result = await JobStore.RemoveCalendar(CalendarName);
 
             //assert
             Assert.IsTrue(result);
-            Assert.IsNull(JobStore.RetrieveCalendar(CalendarName));
+            Assert.IsNull(await JobStore.RetrieveCalendar(CalendarName));
         }
 
         /// <summary>
         /// Get all the calendar names in the store
         /// </summary>
         [TestMethod]
-        public void GetCalendarNamesSuccessfully() {
+        public async Task GetCalendarNamesSuccessfully()
+        {
             //arrange
-            JobStore.StoreCalendar("cal1",CreateCalendar(),false,false);
-            JobStore.StoreCalendar("cal2", CreateCalendar(), false, false);
+            await JobStore.StoreCalendar("cal1", CreateCalendar(), false, false);
+            await JobStore.StoreCalendar("cal2", CreateCalendar(), false, false);
 
             //act
-            var result = JobStore.GetCalendarNames();
+            var result = await JobStore.GetCalendarNames();
 
             //assert
             Assert.IsTrue(result.Count == 2);
@@ -169,15 +180,18 @@ namespace QuartzRedisJobStore.UnitTest
         /// Calendar could not be removed then there are triggers associated with it. 
         /// </summary>
         [TestMethod, ExpectedException(typeof(JobPersistenceException))]
-        public void RemoveCalendar_WhenActiveTriggerAssociatedWith_Unsuccessfully() {
+        public async Task RemoveCalendar_WhenActiveTriggerAssociatedWith_Unsuccessfully()
+        {
             //arrange
+            await JobStore.StoreCalendar("testCalendar", CreateCalendar(), false, false);
+
             var job = CreateJob();
-            JobStore.StoreJob(job,false);
-            var trigger = CreateTrigger("trigger", "triggerGroup", job.Key);
-            JobStore.StoreTrigger(trigger,false);
+            await JobStore.StoreJob(job, false);
+            var trigger = CreateTrigger("trigger", "triggerGroup", job.Key, calendarName: "testCalendar");
+            await JobStore.StoreTrigger(trigger, false);
 
             //act
-            JobStore.RemoveCalendar(trigger.CalendarName);
+            await JobStore.RemoveCalendar(trigger.CalendarName);
         }
     }
 }

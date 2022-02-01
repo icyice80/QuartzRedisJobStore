@@ -9,16 +9,12 @@ namespace QuartzRedisJobStore.JobStore
     {
         public static string GetDisplayName(this Enum enumValue)
         {
-            var att = enumValue.GetType()
-                            .GetMember(enumValue.ToString())
-                            .First()
-                            .GetCustomAttribute<DisplayAttribute>();
+            var att = enumValue.GetType().
+                GetMember(enumValue.ToString()).
+                First().
+                GetCustomAttribute<DisplayAttribute>();
 
-            if (att != null)
-            {
-                return att.Name;
-            }
-            return string.Empty;
+            return att?.Name ?? string.Empty;
         }
     }
 }
