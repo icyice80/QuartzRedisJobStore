@@ -1,19 +1,18 @@
-﻿using System;
+﻿using Quartz;
+using System;
 using System.Collections.Generic;
-using System.Linq;
-using Quartz;
 
 namespace QuartzRedisJobStore.JobStore
 {
     /// <summary>
     /// schema class for creating keys for hash, set etc. 
     /// </summary>
-    public class RedisJobStoreSchema {
-
+    public class RedisJobStoreSchema
+    {
         /// <summary>
         /// Default lock name
         /// </summary>
-        private const string DefaultLockName = "lock";
+        const string DefaultLockName = "lock";
 
         #region Job related key names
         /// <summary>
@@ -45,11 +44,11 @@ namespace QuartzRedisJobStore.JobStore
         /// <summary>
         /// set name for jobs
         /// </summary>
-        private const string JobsSet = "jobs";
+        const string JobsSet = "jobs";
         /// <summary>
         /// set name for all the groups who have jobs.
         /// </summary>
-        private const string JobGroupsSet = "job_groups";
+        const string JobGroupsSet = "job_groups";
         #endregion
 
         #region trigger related key names
@@ -123,7 +122,7 @@ namespace QuartzRedisJobStore.JobStore
         /// </summary>
         public const string TimesTriggered = "times_triggered";
 
-      
+
         /// <summary>
         /// hash value - Cron Trigger Type string
         /// </summary>
@@ -146,23 +145,24 @@ namespace QuartzRedisJobStore.JobStore
         /// <summary>
         /// Default Delimiter
         /// </summary>
-        private const string DefaultDelimiter = ":";
+        const string DefaultDelimiter = ":";
 
         /// <summary>
         /// name for prefix used to support different schedulers 
         /// </summary>
-        private readonly string _prefix;
+        readonly string prefix;
         /// <summary>
         /// delimiter 
         /// </summary>
-        private readonly string _delimiter;
+        readonly string delimiter;
+
+        readonly string escapedDelimiter;
 
 
         /// <summary>
         /// constructor, with no prefix
         /// </summary>
-        public RedisJobStoreSchema()
-            : this(string.Empty)
+        public RedisJobStoreSchema() : this(string.Empty)
         {
 
         }
@@ -171,8 +171,7 @@ namespace QuartzRedisJobStore.JobStore
         /// constructor with the customized prefix
         /// </summary>
         /// <param name="prefix">prefix</param>
-        public RedisJobStoreSchema(string prefix)
-            : this(prefix, DefaultDelimiter)
+        public RedisJobStoreSchema(string prefix) : this(prefix, DefaultDelimiter)
         {
 
         }
@@ -184,8 +183,11 @@ namespace QuartzRedisJobStore.JobStore
         /// <param name="delimiter">delimiter</param>
         public RedisJobStoreSchema(string prefix, string delimiter)
         {
-            _prefix = prefix;
-            _delimiter = delimiter;
+            this.prefix = prefix;
+            this.delimiter = delimiter;
+            escapedDelimiter = delimiter.Contains(":")
+                ? delimiter.Replace(":", "\\;")
+                : delimiter;
         }
 
         /// <summary>
@@ -195,7 +197,7 @@ namespace QuartzRedisJobStore.JobStore
         /// <returns>hash key</returns>
         public string JobHashKey(JobKey jobKey)
         {
-            return this.AddPrefix("job" + _delimiter + jobKey.Group + _delimiter + jobKey.Name);
+            return AddPrefix("job", jobKey.Group, jobKey.Name);
         }
 
         /// <summary>
@@ -205,7 +207,7 @@ namespace QuartzRedisJobStore.JobStore
         /// <returns>hash key</returns>
         public string JobDataMapHashKey(JobKey jobKey)
         {
-            return this.AddPrefix("job_data_map" + _delimiter + jobKey.Group + _delimiter + jobKey.Name);
+            return AddPrefix("job_data_map", jobKey.Group, jobKey.Name);
         }
 
         /// <summary>
@@ -213,29 +215,29 @@ namespace QuartzRedisJobStore.JobStore
         /// </summary>
         /// <param name="groupName">Group Name</param>
         /// <returns>key for the set</returns>
-        public String JobGroupSetKey(string groupName)
+        public string JobGroupSetKey(string groupName)
         {
-            return AddPrefix("job_group" + _delimiter + groupName);
+            return AddPrefix("job_group", groupName);
         }
 
-       
+
 
         /// <summary>
         /// set key for holding all the jobs.
         /// </summary>
         /// <returns>set key</returns>
-        public String JobsSetKey()
+        public string JobsSetKey()
         {
-            return this.AddPrefix(JobsSet);
+            return AddPrefix(JobsSet);
         }
 
         /// <summary>
         /// set kye for holding all the job groups
         /// </summary>
         /// <returns>set key</returns>
-        public String JobGroupsSetKey()
+        public string JobGroupsSetKey()
         {
-            return this.AddPrefix(JobGroupsSet);
+            return AddPrefix(JobGroupsSet);
         }
 
         /// <summary>
@@ -243,9 +245,10 @@ namespace QuartzRedisJobStore.JobStore
         /// </summary>
         /// <param name="jobHashKey">hash key for a job</param>
         /// <returns>JobKey</returns>
-        public JobKey JobKey(string jobHashKey){
-            var hashParts = this.Split(jobHashKey);
-            return new JobKey(hashParts[2], hashParts[1]);
+        public JobKey JobKey(string jobHashKey)
+        {
+            var (name, group) = Split(jobHashKey);
+            return new JobKey(name, group);
         }
 
         /// <summary>
@@ -264,7 +267,7 @@ namespace QuartzRedisJobStore.JobStore
         /// <returns>set key</returns>
         public string JobTriggersSetKey(JobKey jobKey)
         {
-            return this.AddPrefix("job_triggers" + _delimiter + jobKey.Group + _delimiter + jobKey.Name);
+            return AddPrefix("job_triggers", jobKey.Group, jobKey.Name);
         }
 
         /// <summary>
@@ -274,7 +277,7 @@ namespace QuartzRedisJobStore.JobStore
         /// <returns>hash key</returns>
         public string TriggerHashkey(TriggerKey triggerKey)
         {
-            return this.AddPrefix("trigger" + _delimiter + triggerKey.Group + _delimiter + triggerKey.Name);
+            return AddPrefix("trigger", triggerKey.Group, triggerKey.Name);
         }
 
         /// <summary>
@@ -282,8 +285,9 @@ namespace QuartzRedisJobStore.JobStore
         /// </summary>
         /// <param name="triggerGroupSetKey">triggerGroupSetKey</param>
         /// <returns>Trigger group name</returns>
-        public String TriggerGroup(string triggerGroupSetKey){
-            return this.Split(triggerGroupSetKey)[1];
+        public string TriggerGroup(string triggerGroupSetKey)
+        {
+            return Split(triggerGroupSetKey).group;
         }
 
         /// <summary>
@@ -293,7 +297,7 @@ namespace QuartzRedisJobStore.JobStore
         /// <returns>set key</returns>
         public string TriggerGroupSetKey(string group)
         {
-            return this.AddPrefix("trigger_group" + _delimiter + group);
+            return AddPrefix("trigger_group", group);
         }
 
         /// <summary>
@@ -302,14 +306,14 @@ namespace QuartzRedisJobStore.JobStore
         /// <returns>set key</returns>
         public string TriggersSetKey()
         {
-            return this.AddPrefix("triggers");
+            return AddPrefix("triggers");
         }
 
         /// <summary>
         /// a set key which holds all the trigger_groups
         /// </summary>
         /// <returns>set key</returns>
-        public String TriggerGroupsSetKey()
+        public string TriggerGroupsSetKey()
         {
             return AddPrefix("trigger_groups");
         }
@@ -327,7 +331,7 @@ namespace QuartzRedisJobStore.JobStore
         /// a set key which holds all the job groups whose state are paused.
         /// </summary>
         /// <returns>set key</returns>
-        public String PausedJobGroupsSetKey()
+        public string PausedJobGroupsSetKey()
         {
             return AddPrefix("paused_job_groups");
         }
@@ -337,10 +341,10 @@ namespace QuartzRedisJobStore.JobStore
         /// </summary>
         /// <param name="triggerHashKey">Trigger Hash Key</param>
         /// <returns>TriggerKey</returns>
-        public TriggerKey TriggerKey(String triggerHashKey)
+        public TriggerKey TriggerKey(string triggerHashKey)
         {
-            var hashParts = triggerHashKey.Split(new[] { _delimiter }, StringSplitOptions.None);
-            return new TriggerKey(hashParts[2], hashParts[1]);
+            var (name, group) = Split(triggerHashKey);
+            return new TriggerKey(name, group);
         }
 
         /// <summary>
@@ -350,7 +354,7 @@ namespace QuartzRedisJobStore.JobStore
         /// <returns>sorted set key</returns>
         public string TriggerStateSetKey(RedisTriggerState triggerState)
         {
-            return this.AddPrefix(triggerState.GetDisplayName());
+            return AddPrefix(triggerState.GetDisplayName());
         }
 
         /// <summary>
@@ -358,9 +362,9 @@ namespace QuartzRedisJobStore.JobStore
         /// </summary>
         /// <param name="triggerKey">TriggerKey</param>
         /// <returns>a key</returns>
-        public String TriggerLockKey(TriggerKey triggerKey)
+        public string TriggerLockKey(TriggerKey triggerKey)
         {
-            return AddPrefix("trigger_lock" + _delimiter + triggerKey.Group + _delimiter + triggerKey.Name);
+            return AddPrefix("trigger_lock", triggerKey.Group, triggerKey.Name);
         }
 
         /// <summary>
@@ -368,8 +372,9 @@ namespace QuartzRedisJobStore.JobStore
         /// </summary>
         /// <param name="jobKey">JobKey</param>
         /// <returns>a key</returns>
-        public String JobBlockedKey(JobKey jobKey){
-            return AddPrefix("job_blocked" + _delimiter + jobKey.Group + _delimiter + jobKey.Name);
+        public string JobBlockedKey(JobKey jobKey)
+        {
+            return AddPrefix("job_blocked", jobKey.Group, jobKey.Name);
         }
 
         /// <summary>
@@ -379,7 +384,7 @@ namespace QuartzRedisJobStore.JobStore
         /// <returns>set key</returns>
         public string CalendarTriggersSetKey(string calendarName)
         {
-            return AddPrefix("calendar_triggers" + _delimiter + calendarName);
+            return AddPrefix("calendar_triggers", calendarName);
         }
 
 
@@ -390,7 +395,7 @@ namespace QuartzRedisJobStore.JobStore
         /// <returns>hash key</returns>
         public string CalendarHashKey(string calendarName)
         {
-            return AddPrefix("calendar" + _delimiter + calendarName);
+            return AddPrefix("calendar", calendarName);
         }
 
         /// <summary>
@@ -400,7 +405,7 @@ namespace QuartzRedisJobStore.JobStore
         /// <returns>Calendar Name</returns>
         public string GetCalendarName(string calendarHashKey)
         {
-            return Split(calendarHashKey)[1];
+            return Split(calendarHashKey).group;
         }
 
         /// <summary>
@@ -417,39 +422,45 @@ namespace QuartzRedisJobStore.JobStore
         /// </summary>
         /// <param name="jobGroupSetKey">jobGroupSetKey</param>
         /// <returns>Job's Group</returns>
-        public String JobGroup(string jobGroupSetKey){
-            return Split(jobGroupSetKey)[1];
+        public string JobGroup(string jobGroupSetKey)
+        {
+            return Split(jobGroupSetKey).group;
         }
 
         /// <summary>
         /// construct a key for LastTriggerReleaseTime which is used to check for releaseing the orphaned triggers.
         /// </summary>
         /// <returns></returns>
-        public String LastTriggerReleaseTime()
+        public string LastTriggerReleaseTime()
         {
             return AddPrefix("last_triggers_release_time");
         }
 
-       
+
         /// <summary>
         /// get the lock key for redis. 
         /// </summary>
-        public string LockKey
-        {
-            get
-            {
-                return this.AddPrefix(DefaultLockName);
-            }
-        }
+        public string LockKey => AddPrefix(DefaultLockName);
 
         /// <summary>
         /// prefix the keys
         /// </summary>
         /// <param name="key">key</param>
         /// <returns>key in redis</returns>
-        private String AddPrefix(String key)
+        private string AddPrefix(string key, string group = null, string name = null)
         {
-            return _prefix + key;
+            return prefix + string.Join(delimiter, GetValues());
+
+            IEnumerable<string> GetValues()
+            {
+                yield return key.Replace(delimiter, escapedDelimiter);
+
+                if (!string.IsNullOrEmpty(group))
+                    yield return group.Replace(delimiter, escapedDelimiter);
+
+                if (!string.IsNullOrEmpty(name))
+                    yield return name.Replace(delimiter, escapedDelimiter);
+            }
         }
 
         /// <summary>
@@ -457,9 +468,13 @@ namespace QuartzRedisJobStore.JobStore
         /// </summary>
         /// <param name="val"></param>
         /// <returns></returns>
-        internal List<String> Split(string val)
+        internal (string name, string group) Split(string val)
         {
-            return (val.Split(new [] { _delimiter }, StringSplitOptions.None)).ToList();
+            if (!val.StartsWith(prefix))
+                throw new ArgumentException($"Invalid key {val}, does not start with prefix {prefix}");
+
+            var parts = val.Substring(prefix.Length).Split(new[] { delimiter }, 3, StringSplitOptions.None);
+            return (parts.Length > 2 ? parts[2].Replace(escapedDelimiter, delimiter) : null, parts[1].Replace(escapedDelimiter, delimiter));
         }
     }
 }

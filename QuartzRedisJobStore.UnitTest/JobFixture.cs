@@ -1,4 +1,6 @@
-﻿using System.Linq;
+﻿using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Quartz;
 using Quartz.Impl.Matchers;
@@ -19,7 +21,7 @@ namespace QuartzRedisJobStore.UnitTest
         public void ClearAllJobStoreData()
         {
             System.Diagnostics.Debug.Write("here");
-            JobStore?.ClearAllSchedulingData();
+            JobStore?.ClearAllSchedulingData().Wait();
             System.Diagnostics.Debug.Write(counter++);
         }
 
@@ -33,44 +35,44 @@ namespace QuartzRedisJobStore.UnitTest
         /// store a job
         /// </summary>
         [TestMethod]
-        public void StoreJobSuccessfully()
+        public async Task StoreJobSuccessfully()
         {
             //arrange
             var job = CreateJob();
-            JobStore.StoreJob(job, false);
+            await JobStore.StoreJob(job, false);
 
             //act
-            var jobData = Db.HashGetAll(Schema.JobHashKey(job.Key));
+            var jobData = await Db.HashGetAllAsync(Schema.JobHashKey(job.Key));
 
             //assert
             Assert.IsNotNull(jobData);
-            var description = (from j in jobData.ToList()
+            var description = (string)(from j in jobData.ToList()
                                where j.Name == RedisJobStoreSchema.Description
                                select j.Value).FirstOrDefault();
 
-            Assert.AreEqual(description, "JobTesting");
+            Assert.AreEqual("JobTesting", description);
         }
 
         /// <summary>
         /// store jobdatamap. 
         /// </summary>
         [TestMethod]
-        public void StoreJobDataMapSuccessfully()
+        public async Task StoreJobDataMapSuccessfully()
         {
             //arrange
             var job = CreateJob();
-            JobStore.StoreJob(job, false);
+            await JobStore.StoreJob(job, false);
 
             //act
-            var jobData = Db.HashGetAll(Schema.JobDataMapHashKey(job.Key));
+            var jobData = await Db.HashGetAllAsync(Schema.JobDataMapHashKey(job.Key));
 
             //assert
             Assert.IsNotNull(jobData);
-            var data = (from j in jobData.ToList()
+            var data = (string)(from j in jobData.ToList()
                         where j.Name == "testJob"
                         select j.Value).FirstOrDefault();
 
-            Assert.AreEqual(data, "testJob");
+            Assert.AreEqual("testJob", data);
         }
 
         /// <summary>
@@ -78,23 +80,27 @@ namespace QuartzRedisJobStore.UnitTest
         /// the original one will not be overriden.
         /// </summary>
         [TestMethod]
-        public void StoreJob_WithoutReplacingExisting_NoOverride()
+        public async Task StoreJob_WithoutReplacingExisting_NoOverride()
         {
             //arrange
             var job = CreateJob();
-            JobStore.StoreJob(CreateJob(), false);
-            JobStore.StoreJob(CreateJob(description: "anotherDescription"), false);
+            await JobStore.StoreJob(CreateJob(), false);
+            try
+            {
+                await JobStore.StoreJob(CreateJob(description: "anotherDescription"), false);
+            }
+            catch { }
 
             //act
-            var jobData = Db.HashGetAll(Schema.JobHashKey(job.Key));
+            var jobData = await Db.HashGetAllAsync(Schema.JobHashKey(job.Key));
 
             //assert
             Assert.IsNotNull(jobData);
-            var description = (from j in jobData.ToList()
+            var description = (string)(from j in jobData.ToList()
                                where j.Name == RedisJobStoreSchema.Description
                                select j.Value).FirstOrDefault();
 
-            Assert.AreEqual(description, "JobTesting");
+            Assert.AreEqual("JobTesting", description);
         }
 
         /// <summary>
@@ -102,37 +108,37 @@ namespace QuartzRedisJobStore.UnitTest
         /// the original one will be overriden.
         /// </summary>
         [TestMethod]
-        public void StoreJob_WithReplacingExisting_OverrideSuccessfully()
+        public async Task StoreJob_WithReplacingExisting_OverrideSuccessfully()
         {
             //arrange
             var job = CreateJob();
-            JobStore.StoreJob(CreateJob(), true);
-            JobStore.StoreJob(CreateJob(description: "anotherDescription"), true);
+            await JobStore.StoreJob(CreateJob(), true);
+            await JobStore.StoreJob(CreateJob(description: "anotherDescription"), true);
 
             //act
-            var jobData = Db.HashGetAll(Schema.JobHashKey(job.Key));
+            var jobData = await Db.HashGetAllAsync(Schema.JobHashKey(job.Key));
 
             //assert
             Assert.IsNotNull(jobData);
-            var description = (from j in jobData.ToList()
+            var description = (string)(from j in jobData.ToList()
                                where j.Name == RedisJobStoreSchema.Description
                                select j.Value).FirstOrDefault();
 
-            Assert.AreEqual(description, "anotherDescription");
+            Assert.AreEqual("anotherDescription", description);
         }
 
         /// <summary>
         /// retrieve a job
         /// </summary>
         [TestMethod]
-        public void RetreiveJobSuccessfully()
+        public async Task RetreiveJobSuccessfully()
         {
             //arrange
             var originalJob = CreateJob();
-            JobStore.StoreJob(originalJob, true);
+            await JobStore.StoreJob(originalJob, true);
 
             //act
-            var retrievedJob = JobStore.RetrieveJob(originalJob.Key);
+            var retrievedJob = await JobStore.RetrieveJob(originalJob.Key);
 
             //assert
             Assert.IsNotNull(retrievedJob);
@@ -144,37 +150,37 @@ namespace QuartzRedisJobStore.UnitTest
         /// remove a job
         /// </summary>
         [TestMethod]
-        public void RemoveJobSuccessfully()
+        public async Task RemoveJobSuccessfully()
         {
             //arrange 
             var job = CreateJob("job1", "group1");
             var trigger1 = CreateTrigger("trigger1", "triggerGroup1", job.Key);
             var trigger2 = CreateTrigger("trigger2", "triggerGroup2", job.Key);
-            var triggerSet = new global::Quartz.Collection.HashSet<ITrigger> { trigger1, trigger2 };
-            this.StoreJobAndTriggers(job, triggerSet);
+            var triggerSet = new HashSet<ITrigger> { trigger1, trigger2 };
+            await this.StoreJobAndTriggers(job, triggerSet);
 
             //act
-            var result = JobStore.RemoveJob(job.Key);
+            var result = await JobStore.RemoveJob(job.Key);
 
             //assert
             Assert.IsTrue(result);
-            Assert.IsNull(JobStore.RetrieveJob(job.Key));
-            Assert.IsNull(JobStore.RetrieveTrigger(trigger1.Key));
-            Assert.IsNull(JobStore.RetrieveTrigger(trigger2.Key));
+            Assert.IsNull(await JobStore.RetrieveJob(job.Key));
+            Assert.IsNull(await JobStore.RetrieveTrigger(trigger1.Key));
+            Assert.IsNull(await JobStore.RetrieveTrigger(trigger2.Key));
         }
 
         /// <summary>
         /// remove jobs
         /// </summary>
         [TestMethod]
-        public void RemoveJobsSuccessfully()
+        public async Task RemoveJobsSuccessfully()
         {
             //arrange
             var jobsAndTriggers = CreateJobsAndTriggers(2, 1, 1, 1);
-            JobStore.StoreJobsAndTriggers(jobsAndTriggers, true);
+            await JobStore.StoreJobsAndTriggers(jobsAndTriggers, true);
 
             //act
-            var result = JobStore.RemoveJobs((from job in jobsAndTriggers.Keys select job.Key).ToList());
+            var result = await JobStore.RemoveJobs((from job in jobsAndTriggers.Keys select job.Key).ToList());
 
             //assert
             Assert.IsTrue(result);
@@ -184,15 +190,15 @@ namespace QuartzRedisJobStore.UnitTest
         /// Get total number of jobs in the store
         /// </summary>
         [TestMethod]
-        public void GetNumberOfJobsSuccessfully()
+        public async Task GetNumberOfJobsSuccessfully()
         {
             //arrange
-            JobStore.StoreJob(CreateJob("job1", "group1"), true);
-            JobStore.StoreJob(CreateJob("job2", "group2"), true);
-            JobStore.StoreJob(CreateJob("job3", "group3"), true);
+            await JobStore.StoreJob(CreateJob("job1", "group1"), true);
+            await JobStore.StoreJob(CreateJob("job2", "group2"), true);
+            await JobStore.StoreJob(CreateJob("job3", "group3"), true);
 
             //act
-            var numberOfJobs = JobStore.GetNumberOfJobs();
+            var numberOfJobs = await JobStore.GetNumberOfJobs();
 
             //assert
             Assert.IsTrue(numberOfJobs == 3);
@@ -202,15 +208,15 @@ namespace QuartzRedisJobStore.UnitTest
         /// get the jobs in which its group is group1
         /// </summary>
         [TestMethod]
-        public void GetJobKeys_UseEqualOperator_Successfully()
+        public async Task GetJobKeys_UseEqualOperator_Successfully()
         {
             //arrange
-            JobStore.StoreJob(CreateJob("job1", "group1"), true);
-            JobStore.StoreJob(CreateJob("job2", "group1"), true);
-            JobStore.StoreJob(CreateJob("job3", "group3"), true);
+            await JobStore.StoreJob(CreateJob("job1", "group1"), true);
+            await JobStore.StoreJob(CreateJob("job2", "group1"), true);
+            await JobStore.StoreJob(CreateJob("job3", "group3"), true);
 
             //act
-            var jobKeys = JobStore.GetJobKeys(GroupMatcher<JobKey>.GroupEquals("group1"));
+            var jobKeys = await JobStore.GetJobKeys(GroupMatcher<JobKey>.GroupEquals("group1"));
 
             //assert
             Assert.IsTrue(jobKeys.Count == 2);
@@ -220,15 +226,15 @@ namespace QuartzRedisJobStore.UnitTest
         /// get the jobs in which its group contains group0
         /// </summary>
         [TestMethod]
-        public void GetJobKeys_UseContainOperator_Successfully()
+        public async Task GetJobKeys_UseContainOperator_Successfully()
         {
             //arrange
-            JobStore.StoreJob(CreateJob("job1", "group01"), true);
-            JobStore.StoreJob(CreateJob("job2", "group01"), true);
-            JobStore.StoreJob(CreateJob("job3", "group03"), true);
+            await JobStore.StoreJob(CreateJob("job1", "group01"), true);
+            await JobStore.StoreJob(CreateJob("job2", "group01"), true);
+            await JobStore.StoreJob(CreateJob("job3", "group03"), true);
 
             //act
-            var jobKeys = JobStore.GetJobKeys(GroupMatcher<JobKey>.GroupContains("group0"));
+            var jobKeys = await JobStore.GetJobKeys(GroupMatcher<JobKey>.GroupContains("group0"));
 
             //assert
             Assert.IsTrue(jobKeys.Count == 3);
@@ -238,15 +244,15 @@ namespace QuartzRedisJobStore.UnitTest
         /// get the jobs in which its group ends with s
         /// </summary>
         [TestMethod]
-        public void GetJobKeys_UseEndsWithOperator_Successfully()
+        public async Task GetJobKeys_UseEndsWithOperator_Successfully()
         {
             //arrange
-            JobStore.StoreJob(CreateJob("job1", "group01s"), true);
-            JobStore.StoreJob(CreateJob("job2", "group01s"), true);
-            JobStore.StoreJob(CreateJob("job3", "group03s"), true);
+            await JobStore.StoreJob(CreateJob("job1", "group01s"), true);
+            await JobStore.StoreJob(CreateJob("job2", "group01s"), true);
+            await JobStore.StoreJob(CreateJob("job3", "group03s"), true);
 
             //act
-            var jobKeys = JobStore.GetJobKeys(GroupMatcher<JobKey>.GroupEndsWith("s"));
+            var jobKeys = await JobStore.GetJobKeys(GroupMatcher<JobKey>.GroupEndsWith("s"));
 
             //assert
             Assert.IsTrue(jobKeys.Count == 3);
@@ -256,15 +262,15 @@ namespace QuartzRedisJobStore.UnitTest
         /// get the jobs in which its group starts with groups
         /// </summary>
         [TestMethod]
-        public void GetJobKeys_UseStartsWithOperator_Successfully()
+        public async Task GetJobKeys_UseStartsWithOperator_Successfully()
         {
             //arrange
-            JobStore.StoreJob(CreateJob("job1", "groups1"), true);
-            JobStore.StoreJob(CreateJob("job2", "groups2"), true);
-            JobStore.StoreJob(CreateJob("job3", "groups3"), true);
+            await JobStore.StoreJob(CreateJob("job1", "groups1"), true);
+            await JobStore.StoreJob(CreateJob("job2", "groups2"), true);
+            await JobStore.StoreJob(CreateJob("job3", "groups3"), true);
 
             //act
-            var jobKeys = JobStore.GetJobKeys(GroupMatcher<JobKey>.GroupStartsWith("groups"));
+            var jobKeys = await JobStore.GetJobKeys(GroupMatcher<JobKey>.GroupStartsWith("groups"));
 
             //assert
             Assert.IsTrue(jobKeys.Count == 3);
@@ -274,15 +280,15 @@ namespace QuartzRedisJobStore.UnitTest
         /// get all the group name in the store
         /// </summary>
         [TestMethod]
-        public void GetJobGroupNamesSuccessfully()
+        public async Task GetJobGroupNamesSuccessfully()
         {
 
             //arrange
-            JobStore.StoreJob(CreateJob("job1", "groups1"), true);
-            JobStore.StoreJob(CreateJob("job2", "groups2"), true);
+            await JobStore.StoreJob(CreateJob("job1", "groups1"), true);
+            await JobStore.StoreJob(CreateJob("job2", "groups2"), true);
 
             //act
-            var groups = JobStore.GetJobGroupNames();
+            var groups = await JobStore.GetJobGroupNames();
 
             //assert
             Assert.IsTrue(groups.Count == 2);
@@ -292,36 +298,36 @@ namespace QuartzRedisJobStore.UnitTest
         /// pause a job
         /// </summary>
         [TestMethod]
-        public void PauseJobSuccessfully()
+        public async Task PauseJobSuccessfully()
         {
             //arrange
             var job = CreateJob("pausedJob", "pausedGroup");
             var trigger1 = CreateTrigger("trigger1", "triggerGroup1", job.Key);
             var trigger2 = CreateTrigger("trigger2", "triggerGroup2", job.Key);
-            var triggerSet = new global::Quartz.Collection.HashSet<ITrigger> { trigger1, trigger2 };
-            this.StoreJobAndTriggers(job, triggerSet);
+            var triggerSet = new HashSet<ITrigger> { trigger1, trigger2 };
+            await this.StoreJobAndTriggers(job, triggerSet);
 
             //act
-            JobStore.PauseJob(job.Key);
+            await JobStore.PauseJob(job.Key);
 
             //assert
-            Assert.AreEqual(JobStore.GetTriggerState(trigger1.Key), TriggerState.Paused);
-            Assert.AreEqual(JobStore.GetTriggerState(trigger2.Key), TriggerState.Paused);
+            Assert.AreEqual(TriggerState.Paused, await JobStore.GetTriggerState(trigger1.Key));
+            Assert.AreEqual(TriggerState.Paused, await JobStore.GetTriggerState(trigger2.Key));
         }
 
         /// <summary>
         /// Pause all the job which their group equals jobGroup_1
         /// </summary>
         [TestMethod]
-        public void PauseJobs_UseEqualOperator_Successfully()
+        public async Task PauseJobs_UseEqualOperator_Successfully()
         {
             //arrange
             var jobsAndTriggers = CreateJobsAndTriggers(2, 1, 1, 2);
-            JobStore.StoreJobsAndTriggers(jobsAndTriggers, false);
+            await JobStore.StoreJobsAndTriggers(jobsAndTriggers, false);
             var pausedGroup = jobsAndTriggers.First().Key.Key.Group;
 
             //act
-            JobStore.PauseJobs(GroupMatcher<JobKey>.GroupEquals(pausedGroup));
+            await JobStore.PauseJobs(GroupMatcher<JobKey>.GroupEquals(pausedGroup));
 
             //assert
             foreach (var job in jobsAndTriggers.Keys)
@@ -331,16 +337,12 @@ namespace QuartzRedisJobStore.UnitTest
                 if (job.Key.Group == pausedGroup)
                 {
                     foreach (var trigger in triggers)
-                    {
-                        Assert.AreEqual(JobStore.GetTriggerState(trigger.Key), TriggerState.Paused);
-                    }
+                        Assert.AreEqual(TriggerState.Paused, await JobStore.GetTriggerState(trigger.Key));
                 }
                 else
                 {
                     foreach (var trigger in triggers)
-                    {
-                        Assert.AreEqual(JobStore.GetTriggerState(trigger.Key), TriggerState.Normal);
-                    }
+                        Assert.AreEqual(TriggerState.Normal, await JobStore.GetTriggerState(trigger.Key));
                 }
             }
         }
@@ -349,88 +351,88 @@ namespace QuartzRedisJobStore.UnitTest
         /// Pause all the job which their group starts with start
         /// </summary>
         [TestMethod]
-        public void PauseJobs_UseStartsWithOperator_Successfully()
+        public async Task PauseJobs_UseStartsWithOperator_Successfully()
         {
             //arrange
             var job = CreateJob("job1", "startGroup");
             var trigger1 = CreateTrigger("trigger1", "triggerGroup1", job.Key);
             var trigger2 = CreateTrigger("trigger2", "triggerGroup2", job.Key);
-            var triggerSet = new global::Quartz.Collection.HashSet<ITrigger> { trigger1, trigger2 };
-            this.StoreJobAndTriggers(job, triggerSet);
+            var triggerSet = new HashSet<ITrigger> { trigger1, trigger2 };
+            await this.StoreJobAndTriggers(job, triggerSet);
 
             //act
-            var pausedJobs = JobStore.PauseJobs(GroupMatcher<JobKey>.GroupStartsWith("start"));
+            var pausedJobs = await JobStore.PauseJobs(GroupMatcher<JobKey>.GroupStartsWith("start"));
 
             //assert
             Assert.IsTrue(pausedJobs.Count == 1);
-            Assert.AreEqual(TriggerState.Paused, JobStore.GetTriggerState(trigger1.Key));
-            Assert.AreEqual(TriggerState.Paused, JobStore.GetTriggerState(trigger2.Key));
+            Assert.AreEqual(TriggerState.Paused, await JobStore.GetTriggerState(trigger1.Key));
+            Assert.AreEqual(TriggerState.Paused, await JobStore.GetTriggerState(trigger2.Key));
         }
 
         /// <summary>
         /// Pause all the job which their group ends with Ends
         /// </summary>
         [TestMethod]
-        public void PauseJobs_UseEndssWithOperator_Successfully()
+        public async Task PauseJobs_UseEndssWithOperator_Successfully()
         {
             //arrange
             var job = CreateJob("job1", "GroupEnds");
             var trigger1 = CreateTrigger("trigger1", "triggerGroup1", job.Key);
             var trigger2 = CreateTrigger("trigger2", "triggerGroup2", job.Key);
-            var triggerSet = new global::Quartz.Collection.HashSet<ITrigger> { trigger1, trigger2 };
-            this.StoreJobAndTriggers(job, triggerSet);
+            var triggerSet = new HashSet<ITrigger> { trigger1, trigger2 };
+            await this.StoreJobAndTriggers(job, triggerSet);
 
             //act
-            var pausedJobs = JobStore.PauseJobs(GroupMatcher<JobKey>.GroupEndsWith("Ends"));
+            var pausedJobs = await JobStore.PauseJobs(GroupMatcher<JobKey>.GroupEndsWith("Ends"));
 
             //assert
             Assert.IsTrue(pausedJobs.Count == 1);
-            Assert.AreEqual(TriggerState.Paused, JobStore.GetTriggerState(trigger1.Key));
-            Assert.AreEqual(TriggerState.Paused, JobStore.GetTriggerState(trigger2.Key));
+            Assert.AreEqual(TriggerState.Paused, await JobStore.GetTriggerState(trigger1.Key));
+            Assert.AreEqual(TriggerState.Paused, await JobStore.GetTriggerState(trigger2.Key));
         }
 
         /// <summary>
         /// Pause all the job which their group contains foobar
         /// </summary>
         [TestMethod]
-        public void PauseJobs_UseContainWithsOperator_Successfully()
+        public async Task PauseJobs_UseContainWithsOperator_Successfully()
         {
             //arrange
             var job = CreateJob("job1", "GroupContainsfoobar");
             var trigger1 = CreateTrigger("trigger1", "triggerGroup1", job.Key);
             var trigger2 = CreateTrigger("trigger2", "triggerGroup2", job.Key);
-            var triggerSet = new global::Quartz.Collection.HashSet<ITrigger> { trigger1, trigger2 };
-            this.StoreJobAndTriggers(job, triggerSet);
+            var triggerSet = new HashSet<ITrigger> { trigger1, trigger2 };
+            await this.StoreJobAndTriggers(job, triggerSet);
 
             //act
-            var pausedJobs = JobStore.PauseJobs(GroupMatcher<JobKey>.GroupContains("foobar"));
+            var pausedJobs = await JobStore.PauseJobs(GroupMatcher<JobKey>.GroupContains("foobar"));
 
             //assert
             Assert.IsTrue(pausedJobs.Count == 1);
-            Assert.AreEqual(TriggerState.Paused, JobStore.GetTriggerState(trigger1.Key));
-            Assert.AreEqual(TriggerState.Paused, JobStore.GetTriggerState(trigger2.Key));
+            Assert.AreEqual(TriggerState.Paused, await JobStore.GetTriggerState(trigger1.Key));
+            Assert.AreEqual(TriggerState.Paused, await JobStore.GetTriggerState(trigger2.Key));
         }
 
         /// <summary>
         /// resume a job
         /// </summary>
         [TestMethod]
-        public void ResumeJobSuccessfully()
+        public async Task ResumeJobSuccessfully()
         {
             //arrange
             var job = CreateJob("job1", "jobGroup1");
             var trigger1 = CreateTrigger("trigger1", "triggerGroup1", job.Key);
             var trigger2 = CreateTrigger("trigger2", "triggerGroup2", job.Key);
-            var triggerSet = new global::Quartz.Collection.HashSet<ITrigger> { trigger1, trigger2 };
-            this.StoreJobAndTriggers(job, triggerSet);
-            JobStore.PauseJob(job.Key);
+            var triggerSet = new HashSet<ITrigger> { trigger1, trigger2 };
+            await this.StoreJobAndTriggers(job, triggerSet);
+            await JobStore.PauseJob(job.Key);
 
             //act
-            JobStore.ResumeJob(job.Key);
+            await JobStore.ResumeJob(job.Key);
 
             //assert
-            Assert.AreEqual(TriggerState.Normal, JobStore.GetTriggerState(trigger1.Key));
-            Assert.AreEqual(TriggerState.Normal, JobStore.GetTriggerState(trigger2.Key));
+            Assert.AreEqual(TriggerState.Normal, await JobStore.GetTriggerState(trigger1.Key));
+            Assert.AreEqual(TriggerState.Normal, await JobStore.GetTriggerState(trigger2.Key));
         }
 
 
@@ -438,18 +440,18 @@ namespace QuartzRedisJobStore.UnitTest
         /// resume all the job which their group equals jobGroup_1
         /// </summary>
         [TestMethod]
-        public void ResumeJobs_UseEqualOperator_Successfully()
+        public async Task ResumeJobs_UseEqualOperator_Successfully()
         {
             //arrange
             var jobsAndTriggers = CreateJobsAndTriggers(2, 2, 2, 2);
-            JobStore.StoreJobsAndTriggers(jobsAndTriggers, false);
+            await JobStore.StoreJobsAndTriggers(jobsAndTriggers, false);
             var pausedGroup = jobsAndTriggers.Keys.First().Key.Group;
-            JobStore.PauseJobs(GroupMatcher<JobKey>.GroupEquals(pausedGroup));
-            global::Quartz.Collection.ISet<ITrigger> triggers = new global::Quartz.Collection.HashSet<ITrigger>();
+            await JobStore.PauseJobs(GroupMatcher<JobKey>.GroupEquals(pausedGroup));
+            IReadOnlyCollection<ITrigger> triggers = new HashSet<ITrigger>();
             jobsAndTriggers.TryGetValue(jobsAndTriggers.Keys.First(), out triggers);
 
             //act
-            var resumedJobGroups = JobStore.ResumeJobs(GroupMatcher<JobKey>.GroupEquals(pausedGroup));
+            var resumedJobGroups = await JobStore.ResumeJobs(GroupMatcher<JobKey>.GroupEquals(pausedGroup));
 
             //assert
             Assert.IsTrue(resumedJobGroups.Count == 1);
@@ -458,7 +460,7 @@ namespace QuartzRedisJobStore.UnitTest
             //all its triggers are back to the Normal state
             foreach (var trigger in triggers)
             {
-                Assert.AreEqual(TriggerState.Normal, JobStore.GetTriggerState(trigger.Key));
+                Assert.AreEqual(TriggerState.Normal, await JobStore.GetTriggerState(trigger.Key));
             }
         }
 
@@ -466,18 +468,18 @@ namespace QuartzRedisJobStore.UnitTest
         /// resume all the job which their group ends with _1
         /// </summary>
         [TestMethod]
-        public void ResumeJobs_UseEndsWithOperator_Successfully()
+        public async Task ResumeJobs_UseEndsWithOperator_Successfully()
         {
             //arrange
             var jobsAndTriggers = CreateJobsAndTriggers(2, 2, 2, 2);
-            JobStore.StoreJobsAndTriggers(jobsAndTriggers, false);
+            await JobStore.StoreJobsAndTriggers(jobsAndTriggers, false);
 
-            JobStore.PauseJobs(GroupMatcher<JobKey>.GroupEndsWith("_1"));
-            global::Quartz.Collection.ISet<ITrigger> triggers = new global::Quartz.Collection.HashSet<ITrigger>();
+            await JobStore.PauseJobs(GroupMatcher<JobKey>.GroupEndsWith("_1"));
+            IReadOnlyCollection<ITrigger> triggers = new HashSet<ITrigger>();
             jobsAndTriggers.TryGetValue(jobsAndTriggers.Keys.First(), out triggers);
 
             //act
-            var resumedJobGroups = JobStore.ResumeJobs(GroupMatcher<JobKey>.GroupEndsWith("_1"));
+            var resumedJobGroups = await JobStore.ResumeJobs(GroupMatcher<JobKey>.GroupEndsWith("_1"));
 
             //assert
             Assert.IsTrue(resumedJobGroups.Count == 1);
@@ -485,7 +487,7 @@ namespace QuartzRedisJobStore.UnitTest
             //all its triggers are back to the Normal state
             foreach (var trigger in triggers)
             {
-                Assert.AreEqual(TriggerState.Normal, JobStore.GetTriggerState(trigger.Key));
+                Assert.AreEqual(TriggerState.Normal, await JobStore.GetTriggerState(trigger.Key));
             }
         }
 
@@ -493,15 +495,15 @@ namespace QuartzRedisJobStore.UnitTest
         /// resume all the job which their group starts with jobGroup_
         /// </summary>
         [TestMethod]
-        public void ResumeJobs_UseStartsWithOperator_Successfully()
+        public async Task ResumeJobs_UseStartsWithOperator_Successfully()
         {
             //arrange
             var jobsAndTriggers = CreateJobsAndTriggers(2, 1, 1, 1);
-            JobStore.StoreJobsAndTriggers(jobsAndTriggers, false);
-            JobStore.PauseJobs(GroupMatcher<JobKey>.GroupStartsWith("jobGroup_"));
+            await JobStore.StoreJobsAndTriggers(jobsAndTriggers, false);
+            await JobStore.PauseJobs(GroupMatcher<JobKey>.GroupStartsWith("jobGroup_"));
 
             //act
-            var resumedJobGroups = JobStore.ResumeJobs(GroupMatcher<JobKey>.GroupStartsWith("jobGroup_"));
+            var resumedJobGroups = await JobStore.ResumeJobs(GroupMatcher<JobKey>.GroupStartsWith("jobGroup_"));
 
             //assert
             Assert.IsTrue(resumedJobGroups.Count == 2);
@@ -511,15 +513,15 @@ namespace QuartzRedisJobStore.UnitTest
         /// resume all the job which their group contains _
         /// </summary>
         [TestMethod]
-        public void ResumeJobs_UseContainsWithOperator_Successfully()
+        public async Task ResumeJobs_UseContainsWithOperator_Successfully()
         {
             //arrange
             var jobsAndTriggers = CreateJobsAndTriggers(2, 2, 2, 2);
-            JobStore.StoreJobsAndTriggers(jobsAndTriggers, false);
-            JobStore.PauseJobs(GroupMatcher<JobKey>.GroupContains("_"));
+            await JobStore.StoreJobsAndTriggers(jobsAndTriggers, false);
+            await JobStore.PauseJobs(GroupMatcher<JobKey>.GroupContains("_"));
 
             //act
-            var resumedJobGroups = JobStore.ResumeJobs(GroupMatcher<JobKey>.GroupContains("_"));
+            var resumedJobGroups = await JobStore.ResumeJobs(GroupMatcher<JobKey>.GroupContains("_"));
 
             //assert
             Assert.IsTrue(resumedJobGroups.Count == 2);

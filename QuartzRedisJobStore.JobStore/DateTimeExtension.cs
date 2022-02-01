@@ -14,7 +14,7 @@ namespace QuartzRedisJobStore.JobStore
         /// <returns></returns>
 	    public static double ToUnixTimeMilliSeconds(this DateTime date)
         {
-            TimeSpan span = date - new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc);
+            var span = date - new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc);
             return span.TotalMilliseconds;
         }
     }

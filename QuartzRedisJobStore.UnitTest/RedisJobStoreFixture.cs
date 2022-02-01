@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Threading.Tasks;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Quartz;
 using Quartz.Impl;
@@ -18,7 +19,7 @@ namespace QuartzRedisJobStore.UnitTest
         public void ClearAllJobStoreData()
         {
             System.Diagnostics.Debug.Write("here");
-            JobStore?.ClearAllSchedulingData();
+            JobStore?.ClearAllSchedulingData().Wait();
             System.Diagnostics.Debug.Write(counter++);
         }
 
@@ -33,23 +34,23 @@ namespace QuartzRedisJobStore.UnitTest
         /// check job and trigger are actually saved.
         /// </summary>
         [TestMethod]
-        public void StartScheduler_WithJobsAndTriggers_SavedSuccessfully()
+        public async Task StartScheduler_WithJobsAndTriggers_SavedSuccessfully()
         {
             //arrange
             ISchedulerFactory sf = new StdSchedulerFactory();
-            IScheduler sched = sf.GetScheduler();
+            IScheduler sched = await sf.GetScheduler();
             var job = CreateJob();
             var trigger = CreateTrigger("testTrigger1", "triggerGroup", job.Key, "0/5 * * * * ?");
             var calendar = CreateCalendar();
 
             //act
-            sched.AddCalendar("testCalendar", calendar, false, false);
-            sched.ScheduleJob(job, trigger);
-            sched.Start();
-            sched.Shutdown();
+            await sched.AddCalendar("testCalendar", calendar, false, false);
+            await sched.ScheduleJob(job, trigger);
+            await sched.Start();
+            await sched.Shutdown();
             //assert
-            Assert.IsNotNull(JobStore.RetrieveJob(job.Key));
-            Assert.IsNotNull(JobStore.RetrieveTrigger(trigger.Key));
+            Assert.IsNotNull(await JobStore.RetrieveJob(job.Key));
+            Assert.IsNotNull(await JobStore.RetrieveTrigger(trigger.Key));
         }
 
         /// <summary>
@@ -57,25 +58,25 @@ namespace QuartzRedisJobStore.UnitTest
         /// check job and its trigger are deleted from the store.
         /// </summary>
         [TestMethod]
-        public void StartScheduler_WithJobsAndTriggers_DeletedSuccessfully()
+        public async Task StartScheduler_WithJobsAndTriggers_DeletedSuccessfully()
         {
             //arrange
             ISchedulerFactory sf = new StdSchedulerFactory();
-            IScheduler sched = sf.GetScheduler();
+            IScheduler sched = await sf.GetScheduler();
             var job = CreateJob();
             var trigger = CreateTrigger("testTrigger1", "triggerGroup", job.Key, "0/5 * * * * ?");
             var calendar = CreateCalendar();
-            sched.AddCalendar("testCalendar", calendar, false, false);
-            sched.ScheduleJob(job, trigger);
-            sched.Start();
+            await sched.AddCalendar("testCalendar", calendar, false, false);
+            await sched.ScheduleJob(job, trigger);
+            await sched.Start();
 
             //act
-            sched.DeleteJob(job.Key);
-            sched.Shutdown();
+            await sched.DeleteJob(job.Key);
+            await sched.Shutdown();
 
             //assert
-            Assert.IsNull(JobStore.RetrieveJob(job.Key));
-            Assert.IsNull(JobStore.RetrieveTrigger(trigger.Key));
+            Assert.IsNull(await JobStore.RetrieveJob(job.Key));
+            Assert.IsNull(await JobStore.RetrieveTrigger(trigger.Key));
 
         }
     }

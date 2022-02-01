@@ -1,4 +1,5 @@
 ﻿using Quartz;
+using System.Threading.Tasks;
 
 namespace QuartzRedisJobStore.UnitTest
 {
@@ -21,8 +22,8 @@ namespace QuartzRedisJobStore.UnitTest
         ///             execution.
         /// </remarks>
         /// <param name="context">The execution context.</param>
-        public void Execute(IJobExecutionContext context) {
-            
+        public Task Execute(IJobExecutionContext context) {
+            return Task.CompletedTask;
         }
         #endregion
     }
